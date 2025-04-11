@@ -1,0 +1,152 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple WebSocket Chat</title>
+    <style>
+        body { margin: 0; padding-bottom: 3rem; font-family: sans-serif; }
+        #form { background: rgba(0, 0, 0, 0.15); padding: 0.25rem; position: fixed; bottom: 0; left: 0; right: 0; display: flex; height: 3rem; box-sizing: border-box; backdrop-filter: blur(10px); }
+        #input { border: none; padding: 0 1rem; flex-grow: 1; border-radius: 2rem; margin: 0.25rem; }
+        #input:focus { outline: none; }
+        #form > button { background: #333; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: #fff; }
+        #messages { list-style-type: none; margin: 0; padding: 0; }
+        #messages > li { padding: 0.5rem 1rem; }
+        #messages > li:nth-child(odd) { background: #efefef; }
+        /* Make typing indicator more noticeable */
+        #typing { 
+            padding: 0.5rem 1rem; 
+            font-style: italic; 
+            color: #0066cc; 
+            font-weight: bold;
+            background-color: #f0f8ff;
+            border-top: 1px solid #ccc;
+        }
+        #users { position: fixed; top: 0; right: 0; background: #f4f4f4; padding: 1rem; width: 150px; border-left: 1px solid #ddd; }
+        #users-list { list-style-type: none; padding: 0; }
+    </style>
+</head>
+<body>
+    <ul id="messages"></ul>
+    <!-- Added typing indicator div with a test message to ensure it's visible -->
+    <div id="typing">Typing indicator will appear here</div>
+    <div id="users">
+        <h3>Online Users</h3>
+        <ul id="users-list"></ul>
+    </div>
+    <form id="form" action="">
+        <input id="input" autocomplete="off" /><button>Send</button>
+    </form>
+
+    <!-- Include the Socket.IO client library -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Connect to the Socket.IO server (defaults to the server that served this page)
+        const socket = io();
+
+        // Get references to the HTML elements
+        const form = document.getElementById('form');
+        const input = document.getElementById('input');
+        const messages = document.getElementById('messages');
+        const typingDiv = document.getElementById('typing');
+        const usersList = document.getElementById('users-list');
+        
+        // Track typing users
+        const typingUsers = new Set();
+        let typingTimer;
+
+        // Clear initial test message after 2 seconds
+        setTimeout(() => {
+            typingDiv.textContent = "";
+        }, 2000);
+
+        // --- Sending Messages ---
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+            if (input.value) {
+                console.log("Sending message:", input.value);
+                socket.emit('chat message', input.value);
+                socket.emit('stop typing');
+                input.value = '';
+            }
+        });
+        
+        // --- Typing indicator logic ---
+        input.addEventListener('input', function() {
+            console.log("Input changed:", input.value);
+            if (input.value.length > 0) {
+                console.log("Emitting 'typing' event");
+                socket.emit('typing');
+                
+                clearTimeout(typingTimer);
+                
+                typingTimer = setTimeout(() => {
+                    console.log("Typing timeout - emitting 'stop typing'");
+                    socket.emit('stop typing');
+                }, 2000);
+            } else {
+                console.log("Input empty - emitting 'stop typing'");
+                socket.emit('stop typing');
+                clearTimeout(typingTimer);
+            }
+        });
+        
+        // Function to update the typing indicator display
+        function updateTypingDisplay() {
+            console.log("Updating typing display - users typing:", typingUsers.size);
+            if (typingUsers.size === 0) {
+                typingDiv.textContent = '';
+            } else if (typingUsers.size === 1) {
+                typingDiv.textContent = 'A user is typing...';
+            } else {
+                typingDiv.textContent = `${typingUsers.size} users are typing...`;
+            }
+        }
+
+        // --- Receiving Messages ---
+        socket.on('chat message', function(msg) {
+            console.log("Received message:", msg);
+            const item = document.createElement('li');
+            item.textContent = msg;
+            messages.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+        });
+        
+        // --- Typing indicator events ---
+        socket.on('user typing', function(userId) {
+            console.log("User typing:", userId);
+            typingUsers.add(userId);
+            updateTypingDisplay();
+        });
+        
+        socket.on('user stopped typing', function(userId) {
+            console.log("User stopped typing:", userId);
+            typingUsers.delete(userId);
+            updateTypingDisplay();
+        });
+        
+        // --- User list handling ---
+        socket.on('users update', function(userIds) {
+            console.log("Users update:", userIds);
+            usersList.innerHTML = '';
+            
+            userIds.forEach(id => {
+                const li = document.createElement('li');
+                li.textContent = id === socket.id ? `${id.substring(0, 6)} (You)` : id.substring(0, 6);
+                usersList.appendChild(li);
+            });
+        });
+
+        // --- Connect/disconnect events ---
+        socket.on('connect', () => {
+            console.log('✅ Connected to server:', socket.id);
+        });
+
+        socket.on('disconnect', () => {
+            console.log('❌ Disconnected from server');
+            typingUsers.clear();
+            updateTypingDisplay();
+        });
+
+    </script>
+</body>
+</html>
